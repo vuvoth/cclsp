@@ -28,7 +28,29 @@ pub enum ParserError {
 }
 
 impl<'a> Parser<'a> {
+    pub fn wrap_trivial_tokens(&mut self) -> TokenKind {
+        loop {
+            let kind = self.input.kind_of(self.pos);
+
+            if kind.is_trivial() == false {
+                return kind;
+            }
+
+            self.events.push(Event::Open { kind });
+
+            self.fuel.set(256);
+            self.events.push(Event::TokenPosition(self.pos));
+            self.skip();
+
+            self.events.push(Event::Close);
+        }
+    }
+
     pub fn open(&mut self) -> Marker {
+        if self.events.len() > 0 {
+            self.wrap_trivial_tokens();
+        }
+
         let marker = Marker::Open(self.events.len());
         self.events.push(Event::Open {
             kind: TokenKind::Error,
@@ -52,8 +74,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn close(&mut self, marker_open: Marker, kind: TokenKind) -> Marker {
-        match marker_open {
+    pub fn close(&mut self, open_marker: Marker, kind: TokenKind) -> Marker {
+        match open_marker {
             Marker::Open(index) => {
                 self.events[index] = Event::Open { kind };
                 self.events.push(Event::Close);
@@ -88,6 +110,15 @@ impl<'a> Parser<'a> {
         }
         self.close(m, TokenKind::Error);
     }
+
+    pub fn error_report(&mut self, error: String) {
+        let m = self.open();
+
+        let token = Event::ErrorReport(error);
+        self.events.push(token);
+
+        self.close(m, TokenKind::Error);
+    }
 }
 
 impl<'a> Parser<'a> {
@@ -106,23 +137,11 @@ impl<'a> Parser<'a> {
     }
 
     pub fn dec_rcurly(&mut self) {
-        self.context.r_curly_count += 1;
+        self.context.r_curly_count -= 1;
     }
 
     pub fn current(&mut self) -> TokenKind {
-        let mut kind: TokenKind;
-        loop {
-            kind = self.input.kind_of(self.pos);
-            if !kind.is_trivial() {
-                break;
-            }
-
-            let m = self.open();
-            self.advance();
-            self.close(m, kind);
-        }
-
-        kind
+        self.wrap_trivial_tokens()
     }
 
     pub fn next(&mut self) -> TokenKind {
@@ -147,6 +166,21 @@ impl<'a> Parser<'a> {
         kinds.contains(&current_kind)
     }
 
+    pub fn at_assign_token(&mut self) -> bool {
+        let current_kind = self.current();
+        current_kind.is_assign_token()
+    }
+
+    pub fn at_inline_assign_signal(&mut self) -> bool {
+        let current_kind = self.current();
+        current_kind.is_inline_assign_signal()
+    }
+
+    pub fn at_var_assign(&mut self) -> bool {
+        let current_kind = self.current();
+        current_kind.is_var_assign()
+    }
+
     pub fn skip(&mut self) {
         self.next();
     }
@@ -162,6 +196,7 @@ impl<'a> Parser<'a> {
             self.advance();
             return true;
         }
+
         false
     }
 
@@ -170,19 +205,17 @@ impl<'a> Parser<'a> {
         if kinds.contains(&kind) {
             self.advance();
         } else {
-            // error report
-            // println!("expect {:?} but got {:?}", kinds, kind);
+            let error = format!("expect {:?} but got {:?}", kinds, kind);
+            self.error_report(error);
         }
     }
 
     pub fn expect(&mut self, kind: TokenKind) {
-        let _current = self.current();
-
         if self.at(kind) {
             self.advance();
         } else {
-            // error report
-            // println!("expect {:?} but got {:?}", kind, current);
+            let error = format!("expect {:?} but got {:?}", kind, self.current());
+            self.error_report(error);
         }
     }
 

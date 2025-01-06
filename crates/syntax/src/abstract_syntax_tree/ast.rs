@@ -48,6 +48,9 @@ impl AstVarDecl {
 
 ast_node!(AstComponentDecl, ComponentDecl);
 
+// component hash = Poseidon(2);
+// template --> Poseidon
+// component_identifier --> hash
 impl AstComponentDecl {
     pub fn template(&self) -> Option<AstTemplateName> {
         support::child(self.syntax())
@@ -87,6 +90,15 @@ impl AstPragma {
     }
 }
 ast_node!(AstParameterList, TokenKind::ParameterList);
+
+impl AstParameterList {
+    pub fn parameters(&self) -> Vec<AstIdentifier> {
+        self.syntax()
+            .children()
+            .filter_map(AstIdentifier::cast)
+            .collect()
+    }
+}
 
 ast_node!(AstIdentifier, Identifier);
 
